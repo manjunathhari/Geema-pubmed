@@ -8,3 +8,5 @@
 - Owner chose Stage 0 first, his own runs only, all automatic fails, and the pass mark. SciSpace left out. Repo stays public.
 - Read-only server check passed through Hostinger, then removed.
 - Stage 0 design and ADR-001 written for approval.
+- Owner approved the design. Stage 0 runner built on branch `stage0/runner`, in `stage0/`. Not run on the server yet. Details in `.10x/decisions/sde/stage0-writer-test.md`.
+- Departures from the build brief: search log also says "not available"; Ollama call uses `std::net`, not `ureq`, so a timer can close the socket; a small XML reader instead of `quick-xml`.
