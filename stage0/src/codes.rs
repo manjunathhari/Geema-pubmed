@@ -10,7 +10,6 @@ pub enum Code {
     PromptCountOff,
     CountsMissing,
     ContextFull,
-    NumPredictLimit,
     TimeConnect,
     TimeFirstToken,
     TimeGap,
@@ -31,6 +30,8 @@ pub enum Code {
     UnloadFailed,
     // Input limit: stated with the result.
     ThinInput,
+    // Unclear: a person reads the reply. Neither setup nor held against Gemma yet.
+    NumPredictNeedsReading,
     // Against Gemma, after review.
     RunawaySuspected,
     EmptyOutcomes,

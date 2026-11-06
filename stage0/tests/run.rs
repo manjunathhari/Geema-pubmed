@@ -234,7 +234,7 @@ fn each_failure_is_labelled_the_run_goes_on_and_logs_stay_clean() {
     assert_eq!(codes(&result(&out, "ctx")), ["THIN_INPUT", "PROMPT_CUT"]);
     assert_eq!(
         codes(&result(&out, "len")),
-        ["THIN_INPUT", "NUM_PREDICT_LIMIT"]
+        ["THIN_INPUT", "NUM_PREDICT_NEEDS_READING"]
     );
     assert_eq!(codes(&result(&out, "nod")), ["THIN_INPUT", "PROXY_CUT"]);
     assert_eq!(

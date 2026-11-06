@@ -28,22 +28,38 @@ pub struct CheckCounts {
 const BYTES_PER_TOKEN: f64 = 3.85;
 /// A prompt count further than one part in this from the estimate is flagged.
 const OFF_BY_ONE_IN: u64 = 4;
-/// A reply whose last bytes repeat this many times looks like a loop.
-const LOOP_TAIL_BYTES: usize = 64;
-const LOOP_REPEATS: usize = 3;
+/// A runaway: the end of the reply is one pattern, end to end, at least this
+/// many times over and at least this long. Numbers don't count as a difference,
+/// because a runaway often counts upwards. A real answer's rows share their field
+/// names, but not their wording, so they don't match.
+const LOOP_REPEATS: usize = 5;
+const LOOP_MIN_BYTES: usize = 1_024;
+const LOOP_MAX_PATTERN_BYTES: usize = 4_096;
 
 /// Estimated prompt tokens. No tokenizer is bundled.
 pub fn estimate_tokens(prompt_bytes: usize) -> u64 {
     (prompt_bytes as f64 / BYTES_PER_TOKEN).round() as u64
 }
 
-fn looks_like_a_loop(reply: &str) -> bool {
-    let b = reply.as_bytes();
-    if b.len() < LOOP_TAIL_BYTES * LOOP_REPEATS {
-        return false;
+/// The bytes with each run of digits as one `#`, so 99 and 100 read the same.
+fn digits_as_one(reply: &str) -> Vec<u8> {
+    let mut out = Vec::with_capacity(reply.len());
+    for &b in reply.as_bytes() {
+        if !b.is_ascii_digit() {
+            out.push(b);
+        } else if out.last() != Some(&b'#') {
+            out.push(b'#');
+        }
     }
-    let tail = &b[b.len() - LOOP_TAIL_BYTES..];
-    b.windows(LOOP_TAIL_BYTES).filter(|w| *w == tail).count() >= LOOP_REPEATS
+    out
+}
+
+fn looks_like_a_loop(reply: &str) -> bool {
+    let b = digits_as_one(reply);
+    (1..=LOOP_MAX_PATTERN_BYTES).any(|pattern| {
+        let span = (pattern * LOOP_REPEATS).max(LOOP_MIN_BYTES);
+        span <= b.len() && b[b.len() - span..b.len() - pattern] == b[b.len() - span + pattern..]
+    })
 }
 
 /// Incisive's Quick checks, in the order `team.rs` runs them. The empty-list
@@ -117,16 +133,19 @@ pub fn evaluate(
         (Some(p), Some(e)) => p + e >= NUM_CTX,
         _ => false,
     };
+    let at_predict_limit = k.eval_count.is_some_and(|e| e >= NUM_PREDICT);
     let reason = k.done_reason.as_deref();
     match reason {
         Some("stop") if context_used_up => codes.push(Code::PromptCut),
         Some("stop") => {}
-        Some("length") if context_used_up => codes.push(Code::ContextFull),
-        Some("length") if k.eval_count.is_some_and(|e| e >= NUM_PREDICT) => {
-            codes.push(Code::NumPredictLimit);
-            if looks_like_a_loop(&o.reply) {
-                codes.push(Code::RunawaySuspected);
-            }
+        Some("length") if context_used_up || at_predict_limit => {
+            codes.push(if looks_like_a_loop(&o.reply) {
+                Code::RunawaySuspected
+            } else if context_used_up {
+                Code::ContextFull
+            } else {
+                Code::NumPredictNeedsReading
+            });
         }
         _ => codes.push(Code::DoneReasonOther),
     }
@@ -241,10 +260,10 @@ mod tests {
     }
 
     #[test]
-    fn done_reason_length_at_num_predict_is_the_predict_limit() {
+    fn done_reason_length_at_num_predict_needs_reading() {
         let o = outcome("{\"cut", 10_000, NUM_PREDICT, "length");
         let (codes, c) = evaluate(&o, bytes_for(10_000), &studies());
-        assert_eq!(codes, [Code::NumPredictLimit]);
+        assert_eq!(codes, [Code::NumPredictNeedsReading]);
         assert_eq!(c, None);
     }
 
@@ -317,13 +336,108 @@ mod tests {
         );
     }
 
+    fn at_predict_limit(reply: &str) -> Vec<Code> {
+        let o = outcome(reply, 10_000, NUM_PREDICT, "length");
+        evaluate(&o, bytes_for(10_000), &studies()).0
+    }
+
+    /// The first ~45 KB of a made-up answer, then `row(i)` until the limit.
+    fn runaway(row: impl Fn(u32) -> String) -> String {
+        let mut s = format!("{{\"at_a_glance\":\"{}", distinct_words(2_000));
+        let mut i = 95;
+        while s.len() < 45_000 {
+            s.push_str(&row(i));
+            i += 1;
+        }
+        s
+    }
+
+    /// Words that never settle into a pattern.
+    fn distinct_words(bytes: usize) -> String {
+        const WORDS: [&str; 8] = [
+            "mesh",
+            "pain",
+            "trial",
+            "recurrence",
+            "cost",
+            "operative",
+            "groin",
+            "follow-up",
+        ];
+        let (mut x, mut s) = (0x1234_5678_9abc_def1u64, String::new());
+        while s.len() < bytes {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            s.push_str(WORDS[(x % 8) as usize]);
+            s.push(' ');
+        }
+        s
+    }
+
     #[test]
-    fn a_repeating_reply_at_the_limit_is_suspected_runaway() {
-        let o = outcome(&"loop text, ".repeat(100), 10_000, NUM_PREDICT, "length");
+    fn a_repeating_reply_at_the_limit_is_a_runaway_and_not_setup() {
         assert_eq!(
-            evaluate(&o, bytes_for(10_000), &studies()).0,
-            [Code::NumPredictLimit, Code::RunawaySuspected]
+            at_predict_limit(&"loop text, ".repeat(100)),
+            [Code::RunawaySuspected]
         );
+    }
+
+    #[test]
+    fn a_runaway_with_rising_numbers_is_not_labelled_setup() {
+        // The review's two cases: repeating rows, and one long string.
+        let rows = runaway(|i| {
+            format!(
+                "{{\"label\":\"row {i}\",\"value\":{i}.5,\"unit\":null,\"arm\":\"A\",\"pmid\":\"{}\"}},",
+                11_111_111 + i
+            )
+        });
+        assert_eq!(at_predict_limit(&rows), [Code::RunawaySuspected]);
+        let string = runaway(|i| format!("and in patient {i} the pain score was {} ", i * 3));
+        assert_eq!(at_predict_limit(&string), [Code::RunawaySuspected]);
+    }
+
+    #[test]
+    fn a_runaway_that_fills_the_context_is_not_labelled_setup() {
+        let string = runaway(|i| format!("and in patient {i} the pain score was {} ", i * 3));
+        let o = outcome(&string, NUM_CTX - 100, 100, "length");
+        assert_eq!(
+            evaluate(&o, bytes_for(NUM_CTX - 100), &studies()).0,
+            [Code::RunawaySuspected]
+        );
+    }
+
+    #[test]
+    fn a_long_reply_with_no_clear_loop_at_the_limit_needs_reading() {
+        // Plain long text.
+        assert_eq!(
+            at_predict_limit(&distinct_words(45_000)),
+            [Code::NumPredictNeedsReading]
+        );
+        // Honest rows share their field names, so the last 64 bytes recur. Not a loop.
+        let words = distinct_words(45_000);
+        let rows: String = words
+            .split(' ')
+            .enumerate()
+            .map(|(i, w)| {
+                format!(
+                    "{{\"label\":\"{w}\",\"value\":{i},\"unit\":null,\"arm\":\"A\",\"ci_low\":null,\"ci_high\":null,\"p\":null,\"pmid\":\"11111111\"}},"
+                )
+            })
+            .collect();
+        assert_eq!(at_predict_limit(&rows), [Code::NumPredictNeedsReading]);
+        // A counter in words can't be told from writing, so it isn't guessed at.
+        let spelled = [
+            "one", "two", "three", "four", "five", "six", "seven", "eight",
+        ];
+        let counted = runaway(|i| {
+            let word = (u64::from(i).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 61) as usize;
+            format!("row {} ", spelled[word])
+        });
+        assert_eq!(at_predict_limit(&counted), [Code::NumPredictNeedsReading]);
+        // A short repeat at the end is too little to call.
+        let short = format!("{}{}", distinct_words(45_000), "row 1, ".repeat(20));
+        assert_eq!(at_predict_limit(&short), [Code::NumPredictNeedsReading]);
     }
 
     #[test]
