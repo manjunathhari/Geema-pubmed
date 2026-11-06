@@ -8,4 +8,5 @@ pub mod ollama;
 pub mod print;
 pub mod prompt;
 pub mod pubmed;
+pub mod run;
 pub mod xml;
