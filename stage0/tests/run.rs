@@ -293,12 +293,7 @@ fn print_mode_gives_back_the_saved_result() {
         .read_to_end(&mut text)
         .unwrap();
     assert_eq!(text, std::fs::read(out.join("p-1.json")).unwrap());
-    assert!(
-        log.lines()
-            .last()
-            .unwrap()
-            .starts_with("S0END p-1 lines=")
-    );
+    assert!(log.lines().last().unwrap().starts_with("S0END p-1 lines="));
 
     let o = run(&job, &out, &nc, &ol, &["print", "nothing"]);
     assert!(!o.status.success());

@@ -1,0 +1,55 @@
+# Example with placeholders. Replace each REPLACE_ value. Real values stay out of this repo.
+# - REPLACE_NAME: a project name of your own. Creating a project with an existing name replaces it.
+# - REPLACE_FULL_COMMIT: the full 40-character commit to build.
+# - REPLACE_OWNER/REPLACE_REPO: this repo.
+# - REPLACE_EXTERNAL_NETWORK: the existing Docker network Ollama is on.
+# - REPLACE_OLLAMA_HOST: Ollama's name on that network.
+# - STAGE0_JOB_TEXT: the job, a list of {label, question, pmids}. The example text is made up.
+#
+# The run writes results to the volume and logs only labels, counts, codes and times.
+#
+# To read a result back through the logs, create the project again with the
+# `print` profile's service in place of `runner`, naming the label in `command`.
+# Delete the project and its volume after scoring.
+name: REPLACE_NAME
+
+services:
+  runner:
+    build:
+      context: https://github.com/REPLACE_OWNER/REPLACE_REPO.git#REPLACE_FULL_COMMIT:stage0
+    restart: "no"
+    mem_limit: 256m
+    cpus: 0.5
+    tmpfs:
+      - /tmp
+    environment:
+      OLLAMA_URL: http://REPLACE_OLLAMA_HOST:11434
+      STAGE0_JOB_TEXT: >-
+        [{"label":"example-1","question":"A made-up question?","pmids":["11111111","22222222"]}]
+    entrypoint:
+      - /bin/sh
+      - -c
+      - 'printf %s "$$STAGE0_JOB_TEXT" > "$$STAGE0_JOB" && exec stage0-runner'
+    volumes:
+      - results:/out
+    networks:
+      - default
+      - ollama
+
+  print:
+    profiles: ["print"]
+    build:
+      context: https://github.com/REPLACE_OWNER/REPLACE_REPO.git#REPLACE_FULL_COMMIT:stage0
+    restart: "no"
+    mem_limit: 128m
+    command: ["print", "example-1"]
+    volumes:
+      - results:/out:ro
+
+volumes:
+  results:
+
+networks:
+  ollama:
+    external: true
+    name: REPLACE_EXTERNAL_NETWORK
