@@ -6,8 +6,8 @@ use crate::codes::Code;
 use crate::copied::writer::{STUDY_CAPS, StudyInput};
 use crate::job::{ConfigError, Job, parse_jobs, prepare_out_dir};
 use crate::ollama::{
-    ChatOutcome, Counters, Limits, MODEL, NUM_CTX, NUM_PREDICT, OllamaUrl, SEED, chat,
-    chat_request, unload,
+    ChatOutcome, Counters, Limits, MODEL, NUM_CTX, NUM_PREDICT, OllamaUrl, chat, chat_request,
+    unload,
 };
 use crate::prompt::build_prompt;
 use crate::pubmed::{EUTILS, Fetched, NcbiClient};
@@ -192,7 +192,7 @@ fn run_one(
             model: MODEL.into(),
             num_ctx: NUM_CTX,
             num_predict: NUM_PREDICT,
-            seed: SEED,
+            seed: job.seed,
         },
         input: input_given(job),
         counters: Counters::default(),
@@ -237,7 +237,7 @@ fn run_one(
             result.input.prompt_bytes, result.input.prompt_tokens_estimate
         ),
     );
-    let o: ChatOutcome = chat(&cfg.ollama, &chat_request(&prompt), limits);
+    let o: ChatOutcome = chat(&cfg.ollama, &chat_request(&prompt, job.seed), limits);
     let (codes, checks) = evaluate(&o, prompt.len(), &fetched.studies);
     result.codes.extend(codes);
     result.checks = checks;

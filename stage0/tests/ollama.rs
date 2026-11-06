@@ -17,7 +17,7 @@ const SHORT: Limits = Limits {
 
 fn call(m: &Mock, limits: &Limits) -> ChatOutcome {
     let url = OllamaUrl::parse(&m.url).unwrap();
-    chat(&url, &chat_request("made-up prompt"), limits)
+    chat(&url, &chat_request("made-up prompt", 11), limits)
 }
 
 #[test]
@@ -227,7 +227,7 @@ fn connect_timer_fires_when_the_connection_hangs() {
     assert!(full, "the accept queue never filled");
     let url = OllamaUrl::parse(&format!("http://{addr}")).unwrap();
     let t = Instant::now();
-    let o = chat(&url, &chat_request("p"), &SHORT);
+    let o = chat(&url, &chat_request("p", 11), &SHORT);
     assert_eq!(o.failure, Some(Code::TimeConnect));
     assert!(t.elapsed() >= SHORT.connect);
     assert_eq!(o.http_status, None);
@@ -240,7 +240,7 @@ fn a_refused_connection_has_its_own_code() {
     drop(l);
     let url = OllamaUrl::parse(&format!("http://{addr}")).unwrap();
     assert_eq!(
-        chat(&url, &chat_request("p"), &SHORT).failure,
+        chat(&url, &chat_request("p", 11), &SHORT).failure,
         Some(Code::ConnectFailed)
     );
 }

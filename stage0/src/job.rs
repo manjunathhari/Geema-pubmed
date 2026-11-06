@@ -1,6 +1,7 @@
 //! The job file and the program's settings.
 
 use crate::copied::answer::SearchEntry;
+use crate::ollama::DEFAULT_SEED;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
@@ -13,6 +14,13 @@ pub struct Job {
     /// The stored run's search log. Absent: the prompt says "not available".
     #[serde(default)]
     pub searches: Option<Vec<SearchEntry>>,
+    /// The seed for this run, so repeats of one question can differ.
+    #[serde(default = "default_seed")]
+    pub seed: u64,
+}
+
+fn default_seed() -> u64 {
+    DEFAULT_SEED
 }
 
 /// Why the settings or job can't be used. Fixed words only, never file text.
@@ -104,6 +112,20 @@ mod tests {
         .unwrap();
         assert_eq!(j[0].label, "a-1");
         assert_eq!(j[0].pmids, ["11111111", "22222222"]);
+    }
+
+    #[test]
+    fn the_seed_is_optional_and_defaults_to_11() {
+        let j = parse_jobs(
+            br#"[{"label":"a","question":"q","pmids":["1"]},
+                 {"label":"b","question":"q","pmids":["1"],"seed":22}]"#,
+        )
+        .unwrap();
+        assert_eq!((j[0].seed, j[1].seed), (11, 22));
+        assert_eq!(
+            parse_jobs(br#"[{"label":"a","question":"q","pmids":["1"],"seed":-1}]"#),
+            Err(ConfigError::BadJob)
+        );
     }
 
     #[test]

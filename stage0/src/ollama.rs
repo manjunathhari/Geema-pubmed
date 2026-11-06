@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 pub const MODEL: &str = "gemma3:4b";
 pub const NUM_CTX: u64 = 40_960;
 pub const NUM_PREDICT: u64 = 12_288;
-pub const SEED: u64 = 11;
+pub const DEFAULT_SEED: u64 = 11;
 const KEEP_ALIVE: &str = "30m";
 /// The most an error body or response head is read.
 const MAX_SMALL: usize = 64 * 1024;
@@ -112,7 +112,7 @@ impl OllamaUrl {
 }
 
 /// The chat request body for `prompt`.
-pub fn chat_request(prompt: &str) -> Vec<u8> {
+pub fn chat_request(prompt: &str, seed: u64) -> Vec<u8> {
     json!({
         "model": MODEL,
         "stream": true,
@@ -124,7 +124,7 @@ pub fn chat_request(prompt: &str) -> Vec<u8> {
             "num_ctx": NUM_CTX,
             "num_predict": NUM_PREDICT,
             "temperature": 0.2,
-            "seed": SEED,
+            "seed": seed,
             "top_k": 64,
             "top_p": 0.95,
             "repeat_penalty": 1.0

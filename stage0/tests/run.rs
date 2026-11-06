@@ -313,6 +313,29 @@ fn a_search_log_reaches_the_prompt_is_recorded_and_its_terms_are_not_kept() {
 }
 
 #[test]
+fn each_job_sends_and_records_its_own_seed() {
+    let (nc, ol, dir) = (ncbi(), ollama(), temp("seed"));
+    let out = dir.join("out");
+    let job = write_job(
+        &dir,
+        json!([
+            {"label": "plain", "question": QUESTION, "pmids": ["11111111"]},
+            {"label": "other", "question": QUESTION, "pmids": ["11111111"], "seed": 22}
+        ]),
+    );
+    assert!(run(&job, &out, &nc, &ol, &[]).status.success());
+    let c = ol.requests();
+    let seed = |i: usize| -> Value {
+        let b: Value = serde_json::from_str(&c[i].body).unwrap();
+        b["options"]["seed"].clone()
+    };
+    assert_eq!((seed(0), seed(1)), (json!(11), json!(22)));
+    assert_eq!(result(&out, "plain")["settings"]["seed"], 11);
+    assert_eq!(result(&out, "other")["settings"]["seed"], 22);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn print_mode_gives_back_the_saved_result() {
     let (nc, ol, dir) = (ncbi(), ollama(), temp("print"));
     let out = dir.join("out");
@@ -454,6 +477,7 @@ fn a_timer_in_a_run_saves_the_partial_reply_and_still_unloads() {
         question: QUESTION.into(),
         pmids: vec!["11111111".into()],
         searches: None,
+        seed: 11,
     }];
     let limits = Limits {
         gap: Duration::from_millis(200),
