@@ -82,6 +82,9 @@ pub struct InputInfo {
     pub abstracts_cut: usize,
     pub prompt_bytes: usize,
     pub prompt_tokens_estimate: u64,
+    /// Whether the job gave a search log, and how many entries. Never the terms.
+    pub searches_present: bool,
+    pub searches_given: usize,
 }
 
 /// What is saved for one run. It holds no question and no abstract.
@@ -123,7 +126,16 @@ fn opt(v: Option<u64>) -> String {
     v.map_or("na".into(), |n| n.to_string())
 }
 
-fn input_info(f: &Fetched) -> InputInfo {
+/// What the job itself says about the input. Counts only, never search terms.
+fn input_given(job: &Job) -> InputInfo {
+    InputInfo {
+        searches_present: job.searches.is_some(),
+        searches_given: job.searches.as_ref().map_or(0, Vec::len),
+        ..InputInfo::default()
+    }
+}
+
+fn input_info(f: &Fetched, job: &Job) -> InputInfo {
     InputInfo {
         studies: f.studies.len(),
         missing_abstracts: f.missing_abstracts.clone(),
@@ -137,7 +149,7 @@ fn input_info(f: &Fetched) -> InputInfo {
                     .is_some_and(|a| a.trim().len() > STUDY_CAPS.abstract_text)
             })
             .count(),
-        ..InputInfo::default()
+        ..input_given(job)
     }
 }
 
@@ -182,7 +194,7 @@ fn run_one(
             num_predict: NUM_PREDICT,
             seed: SEED,
         },
-        input: InputInfo::default(),
+        input: input_given(job),
         counters: Counters::default(),
         // No stored run holds the researcher's reasons or notes.
         codes: vec![Code::ThinInput],
@@ -198,7 +210,7 @@ fn run_one(
         result.finished_at = now();
         return result;
     };
-    result.input = input_info(&fetched);
+    result.input = input_info(&fetched, job);
     say(
         log,
         &format!(
@@ -215,7 +227,7 @@ fn run_one(
         result.finished_at = now();
         return result;
     }
-    let prompt = build_prompt(&job.question, &fetched.studies);
+    let prompt = build_prompt(&job.question, &fetched.studies, job.searches.as_deref());
     result.input.prompt_bytes = prompt.len();
     result.input.prompt_tokens_estimate = estimate_tokens(prompt.len());
     say(

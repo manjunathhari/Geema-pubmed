@@ -1,5 +1,6 @@
 //! The job file and the program's settings.
 
+use crate::copied::answer::SearchEntry;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
@@ -9,6 +10,9 @@ pub struct Job {
     pub label: String,
     pub question: String,
     pub pmids: Vec<String>,
+    /// The stored run's search log. Absent: the prompt says "not available".
+    #[serde(default)]
+    pub searches: Option<Vec<SearchEntry>>,
 }
 
 /// Why the settings or job can't be used. Fixed words only, never file text.
@@ -45,7 +49,8 @@ pub fn parse_jobs(text: &[u8]) -> Result<Vec<Job>, ConfigError> {
             && !seen.contains(&j.label)
             && !j.question.trim().is_empty()
             && !j.pmids.is_empty()
-            && j.pmids.iter().all(|p| valid_pmid(p));
+            && j.pmids.iter().all(|p| valid_pmid(p))
+            && j.searches.as_ref().is_none_or(|s| !s.is_empty());
         if !good {
             return Err(ConfigError::BadJob);
         }
@@ -102,6 +107,23 @@ mod tests {
     }
 
     #[test]
+    fn a_search_log_is_optional_and_in_the_stored_shape() {
+        let j = parse_jobs(br#"[{"label":"a","question":"q","pmids":["1"]}]"#).unwrap();
+        assert_eq!(j[0].searches, None);
+        let j = parse_jobs(
+            br#"[{"label":"a","question":"q","pmids":["1"],
+                  "searches":[{"source":"PubMed","query":"made up","hits":3}]}]"#,
+        )
+        .unwrap();
+        let s = j[0].searches.as_ref().unwrap();
+        assert_eq!(
+            (s[0].source.as_str(), s[0].query.as_str()),
+            ("PubMed", "made up")
+        );
+        assert_eq!(s[0].hits, 3);
+    }
+
+    #[test]
     fn bad_jobs_are_refused() {
         for bad in [
             &b"not json"[..],
@@ -116,6 +138,10 @@ mod tests {
             br#"[{"label":"a b","question":"q","pmids":["1"]}]"#,
             br#"[{"label":"","question":"q","pmids":["1"]}]"#,
             br#"[{"label":"a","question":"q","pmids":["1"]},{"label":"a","question":"r","pmids":["2"]}]"#,
+            // An empty log would render as "not available", which means absent.
+            br#"[{"label":"a","question":"q","pmids":["1"],"searches":[]}]"#,
+            br#"[{"label":"a","question":"q","pmids":["1"],"searches":[{"source":"PubMed","query":"q"}]}]"#,
+            br#"[{"label":"a","question":"q","pmids":["1"],"searches":[{"source":"PubMed","query":"q","hits":-1}]}]"#,
         ] {
             assert_eq!(
                 parse_jobs(bad),

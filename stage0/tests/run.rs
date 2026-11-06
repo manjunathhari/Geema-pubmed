@@ -15,7 +15,9 @@ const TITLE: &str = "TITLEOKAPI trial";
 const REPLY_WORD: &str = "REPLYIBIS";
 const NCBI_ERROR: &str = "NCBIERRORMOLE";
 const OLLAMA_ERROR: &str = "OLLAMAERRORSHREW";
-const MARKERS: [&str; 6] = [
+const SEARCH_TERM: &str = "SEARCHTERMTAPIR";
+const MARKERS: [&str; 7] = [
+    SEARCH_TERM,
     "QUESTIONZEBRA",
     "ABSTRACTYAK",
     "TITLEOKAPI",
@@ -265,6 +267,52 @@ fn each_failure_is_labelled_the_run_goes_on_and_logs_stay_clean() {
 }
 
 #[test]
+fn a_search_log_reaches_the_prompt_is_recorded_and_its_terms_are_not_kept() {
+    let (nc, ol, dir) = (ncbi(), ollama(), temp("searches"));
+    let out = dir.join("out");
+    let job = write_job(
+        &dir,
+        json!([
+            {"label": "with", "question": QUESTION, "pmids": ["11111111"],
+             "searches": [{"source": "PubMed", "query": SEARCH_TERM, "hits": 327}]},
+            {"label": "without", "question": QUESTION, "pmids": ["11111111"]},
+            {"label": "failed", "question": QUESTION, "pmids": ["33333333"],
+             "searches": [{"source": "PubMed", "query": SEARCH_TERM, "hits": 327}]}
+        ]),
+    );
+    let o = run(&job, &out, &nc, &ol, &[]);
+    assert!(o.status.success(), "{}", all_output(&o));
+    assert_no_input_text(&all_output(&o));
+
+    let c = ol.requests();
+    let body = |i: usize| -> Value { serde_json::from_str(&c[i].body).unwrap() };
+    let with = body(0);
+    let prompt = with["messages"][0]["content"].as_str().unwrap();
+    assert!(prompt.contains(&format!("- PubMed: {SEARCH_TERM} (327 hits)")));
+    let without = body(1);
+    let prompt = without["messages"][0]["content"].as_str().unwrap();
+    assert!(
+        prompt.contains("RESEARCHER'S SEARCH LOG (as the databases returned it):\nnot available\n")
+    );
+
+    let r = result(&out, "with");
+    assert_eq!(r["input"]["searches_present"], true);
+    assert_eq!(r["input"]["searches_given"], 1);
+    let r = result(&out, "without");
+    assert_eq!(r["input"]["searches_present"], false);
+    assert_eq!(r["input"]["searches_given"], 0);
+    // Recorded even when the fetch fails.
+    let r = result(&out, "failed");
+    assert_eq!(codes(&r), ["THIN_INPUT", "NCBI_FAILED"]);
+    assert_eq!(r["input"]["searches_present"], true);
+    for label in ["with", "without", "failed"] {
+        let raw = std::fs::read_to_string(out.join(format!("{label}.json"))).unwrap();
+        assert!(!raw.contains(SEARCH_TERM), "the terms aren't stored");
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn print_mode_gives_back_the_saved_result() {
     let (nc, ol, dir) = (ncbi(), ollama(), temp("print"));
     let out = dir.join("out");
@@ -405,6 +453,7 @@ fn a_timer_in_a_run_saves_the_partial_reply_and_still_unloads() {
         label: "t".into(),
         question: QUESTION.into(),
         pmids: vec!["11111111".into()],
+        searches: None,
     }];
     let limits = Limits {
         gap: Duration::from_millis(200),
