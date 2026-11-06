@@ -5,3 +5,8 @@ exports/
 results/
 *.csv
 *.sql.gz
+*.json
+*.jsonl
+*.log
+*.txt
+results*/
