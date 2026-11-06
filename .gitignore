@@ -1,0 +1,7 @@
+target/
+.env
+.env.*
+exports/
+results/
+*.csv
+*.sql.gz
