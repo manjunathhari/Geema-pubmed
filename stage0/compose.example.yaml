@@ -1,10 +1,14 @@
 # Example with placeholders. Replace each REPLACE_ value. Real values stay out of this repo.
 # - REPLACE_NAME: a project name of your own. Creating a project with an existing name replaces it.
-# - REPLACE_FULL_COMMIT: the full 40-character commit to build.
+#   Use a new name for each commit: an existing image may be reused without a rebuild (Estimate).
+# - REPLACE_FULL_COMMIT: the full 40-character commit to build. Each result's build_commit shows
+#   which commit wrote it. Check it.
 # - REPLACE_OWNER/REPLACE_REPO: this repo.
 # - REPLACE_EXTERNAL_NETWORK: the existing Docker network Ollama is on.
 # - REPLACE_OLLAMA_HOST: Ollama's name on that network.
 # - STAGE0_JOB_TEXT: the job, a list of {label, question, pmids}. The example text is made up.
+#   Optional per job: seed (default 11), and searches, the stored run's search log as a list of
+#   {source, query, hits}. Leave searches out if the run has none: an empty list is refused.
 #
 # The run writes results to the volume and logs only labels, counts, codes and times.
 #
@@ -17,6 +21,8 @@ services:
   runner:
     build:
       context: https://github.com/REPLACE_OWNER/REPLACE_REPO.git#REPLACE_FULL_COMMIT:stage0
+      args:
+        STAGE0_COMMIT: REPLACE_FULL_COMMIT
     restart: "no"
     mem_limit: 256m
     cpus: 0.5
@@ -40,6 +46,8 @@ services:
     profiles: ["print"]
     build:
       context: https://github.com/REPLACE_OWNER/REPLACE_REPO.git#REPLACE_FULL_COMMIT:stage0
+      args:
+        STAGE0_COMMIT: REPLACE_FULL_COMMIT
     restart: "no"
     mem_limit: 128m
     command: ["print", "example-1"]

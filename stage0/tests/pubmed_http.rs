@@ -29,7 +29,7 @@ fn the_request_holds_only_pmids_and_extra_records_are_ignored() {
     let m = serve(|_, s| respond(s, 200, ONE));
     let f = client(&m).fetch(&ids(&["11111111", "22222222"])).unwrap();
     let got: Vec<&str> = f.studies.iter().map(|s| s.pmid.as_str()).collect();
-    assert_eq!(got, ["11111111", "22222222"]);
+    assert_eq!(got, ["11111111"], "a study with no record is left out");
     assert_eq!(f.studies[0].title, "Made up");
     assert_eq!(f.missing_records, ["22222222"]);
     let r = &m.requests()[0];

@@ -139,7 +139,8 @@ pub fn parse_efetch(xml: &str) -> Result<Vec<Record>, XmlError> {
 }
 
 /// The studies for `pmids`, in that order, plus what was missing. Records for
-/// any other PMID are ignored. A missing abstract or record keeps the study.
+/// any other PMID are ignored. A missing abstract keeps the study. A missing
+/// record leaves it out and counts it, as Incisive does (`dropped_unfetched`).
 pub fn studies_from(pmids: &[String], records: Vec<Record>) -> Fetched {
     let mut f = Fetched {
         studies: Vec::with_capacity(pmids.len()),
@@ -147,25 +148,22 @@ pub fn studies_from(pmids: &[String], records: Vec<Record>) -> Fetched {
         missing_records: Vec::new(),
     };
     for pmid in pmids {
-        let r = records.iter().find(|r| &r.pmid == pmid);
-        if r.is_none() {
+        let Some(r) = records.iter().find(|r| &r.pmid == pmid) else {
             f.missing_records.push(pmid.clone());
-        }
-        let abstract_text = r.and_then(|r| r.abstract_text.clone());
-        if abstract_text.is_none() {
+            continue;
+        };
+        if r.abstract_text.is_none() {
             f.missing_abstracts.push(pmid.clone());
         }
         f.studies.push(StudyInput {
             pmid: pmid.clone(),
-            title: r
-                .and_then(|r| r.title.clone())
-                .unwrap_or_else(|| "unknown".into()),
-            journal: r.and_then(|r| r.journal.clone()),
-            year: r.and_then(|r| r.year),
-            pub_types: r.map(|r| r.pub_types.clone()).unwrap_or_default(),
-            doi: r.and_then(|r| r.doi.clone()),
-            retracted: r.is_some_and(|r| r.retracted),
-            abstract_text,
+            title: r.title.clone().unwrap_or_else(|| "unknown".into()),
+            journal: r.journal.clone(),
+            year: r.year,
+            pub_types: r.pub_types.clone(),
+            doi: r.doi.clone(),
+            retracted: r.retracted,
+            abstract_text: r.abstract_text.clone(),
             design: NOT_AVAILABLE.into(),
             why: NOT_AVAILABLE.into(),
         });
@@ -419,12 +417,11 @@ mod tests {
         let got: Vec<&str> = f.studies.iter().map(|s| s.pmid.as_str()).collect();
         assert_eq!(
             got,
-            ["33333333", "22222222", "55555555"],
-            "only asked PMIDs"
+            ["33333333", "22222222"],
+            "a study with no record is left out"
         );
-        assert_eq!(f.missing_abstracts, ["22222222", "55555555"]);
+        assert_eq!(f.missing_abstracts, ["22222222"]);
         assert_eq!(f.missing_records, ["55555555"]);
-        assert_eq!(f.studies[2].title, "unknown");
         assert_eq!(f.studies[0].design, "not available");
         assert_eq!(f.studies[0].why, "not available");
     }

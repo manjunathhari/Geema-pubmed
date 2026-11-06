@@ -5,6 +5,8 @@ WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 ENV CARGO_BUILD_JOBS=1
+# Stamped into each result, so a result shows which code wrote it.
+ARG STAGE0_COMMIT
 RUN cargo build --release --locked --bin stage0-runner
 
 FROM debian:bookworm-slim

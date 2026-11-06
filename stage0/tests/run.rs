@@ -201,6 +201,11 @@ fn a_full_run_sends_the_right_things_and_saves_the_result() {
     assert_eq!(r["input"]["studies"], 1);
     assert_eq!(r["input"]["prompt_bytes"], prompt.len());
     assert_eq!(r["settings"]["seed"], 11);
+    assert_eq!(
+        r.get("build_commit"),
+        Some(&Value::Null),
+        "the field is always there; only a Docker build fills it"
+    );
     let raw = std::fs::read_to_string(out.join("a-1.json")).unwrap();
     assert!(
         !raw.contains("QUESTIONZEBRA"),
@@ -248,8 +253,11 @@ fn each_failure_is_labelled_the_run_goes_on_and_logs_stay_clean() {
     );
     assert_eq!(codes(&result(&out, "miss")), ["THIN_INPUT"]);
     let m = result(&out, "miss");
-    assert_eq!(m["input"]["studies"], 2, "the study stays");
-    assert_eq!(m["input"]["missing_abstracts"], json!(["44444444"]));
+    assert_eq!(
+        m["input"]["studies"], 1,
+        "a study PubMed didn't return is left out"
+    );
+    assert_eq!(m["input"]["missing_abstracts"], json!([]));
     assert_eq!(m["input"]["missing_records"], json!(["44444444"]));
     assert_eq!(codes(&result(&out, "ncbi")), ["THIN_INPUT", "NCBI_FAILED"]);
     assert_eq!(
@@ -411,6 +419,15 @@ fn print_mode_gives_back_the_saved_result() {
         .unwrap();
     assert_eq!(text, std::fs::read(out.join("p-1.json")).unwrap());
     assert!(log.lines().last().unwrap().starts_with("S0END p-1 lines="));
+
+    // An earlier result can be printed too, and only by a name `save` would make.
+    let earlier = "p-1.prev-20261106T000000000";
+    std::fs::copy(out.join("p-1.json"), out.join(format!("{earlier}.json"))).unwrap();
+    let o = run(&job, &out, &nc, &ol, &["print", earlier]);
+    assert!(o.status.success(), "{}", all_output(&o));
+    assert!(all_output(&o).contains(&format!("S0END {earlier} lines=")));
+    let o = run(&job, &out, &nc, &ol, &["print", "p-1.prev-../../up"]);
+    assert!(!o.status.success());
 
     let o = run(&job, &out, &nc, &ol, &["print", "nothing"]);
     assert!(!o.status.success());

@@ -92,6 +92,8 @@ pub struct InputInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunResult {
     pub label: String,
+    /// The commit this program was built from, if the build said. See the Dockerfile.
+    pub build_commit: Option<String>,
     pub started_at: String,
     pub finished_at: String,
     pub wall_ms: u64,
@@ -188,6 +190,9 @@ fn run_one(
     let l = &job.label;
     let mut result = RunResult {
         label: l.clone(),
+        build_commit: option_env!("STAGE0_COMMIT")
+            .filter(|c| !c.is_empty())
+            .map(str::to_string),
         started_at,
         finished_at: String::new(),
         wall_ms: 0,

@@ -20,8 +20,8 @@ pub enum PrintError {
 }
 
 /// Base64 characters on a line. With the prefix, a line stays under [`MAX_LINE`]:
-/// a label is at most 64 bytes.
-const CHUNK: usize = 900;
+/// an earlier result's name is at most 88 bytes (a 64-byte label, `.prev-`, a stamp).
+const CHUNK: usize = 880;
 
 /// Writes `bytes` to `w` as numbered lines and a final count and checksum.
 pub fn write_encoded(label: &str, bytes: &[u8], w: &mut dyn Write) -> Result<(), PrintError> {
@@ -48,9 +48,29 @@ pub fn write_encoded(label: &str, bytes: &[u8], w: &mut dyn Write) -> Result<(),
     .map_err(|_| PrintError::Failed)
 }
 
-/// Prints the saved result for `label`.
+/// A label, or the name `run::save` gives an earlier result:
+/// `<label>.prev-<8 digits>T<9 digits>`.
+pub fn valid_result_name(name: &str) -> bool {
+    match name.split_once(".prev-") {
+        None => valid_label(name),
+        Some((label, stamp)) => {
+            let b = stamp.as_bytes();
+            valid_label(label)
+                && b.len() == 18
+                && b.iter().enumerate().all(|(i, c)| {
+                    if i == 8 {
+                        *c == b'T'
+                    } else {
+                        c.is_ascii_digit()
+                    }
+                })
+        }
+    }
+}
+
+/// Prints the saved result for `label`, or an earlier one by its full name.
 pub fn print_result(out: &Path, label: &str, w: &mut dyn Write) -> Result<(), PrintError> {
-    if !valid_label(label) {
+    if !valid_result_name(label) {
         return Err(PrintError::BadLabel);
     }
     let bytes =
@@ -151,6 +171,36 @@ mod tests {
         let mut out = Vec::new();
         write_encoded(&label, &noise(20_000), &mut out).unwrap();
         decode(std::str::from_utf8(&out).unwrap());
+    }
+
+    #[test]
+    fn the_longest_earlier_result_name_still_fits_the_line_limit() {
+        let name = format!("{}.prev-20261106T000000000", "x".repeat(64));
+        assert!(valid_result_name(&name));
+        let mut out = Vec::new();
+        // Enough lines that the line numbers reach 3 digits.
+        write_encoded(&name, &noise(120_000), &mut out).unwrap();
+        decode(std::str::from_utf8(&out).unwrap());
+    }
+
+    #[test]
+    fn only_a_label_or_a_name_save_makes_is_accepted() {
+        for good in ["a", "a-1", "a.prev-20261106T000000000"] {
+            assert!(valid_result_name(good), "{good}");
+        }
+        for bad in [
+            "",
+            "a.b",
+            ".prev-20261106T000000000",
+            "a.prev-",
+            "a.prev-2026",
+            "a.prev-20261106X000000000",
+            "a.prev-20261106T00000000/",
+            "a.prev-20261106T000000000.prev-20261106T000000000",
+            "../a.prev-20261106T000000000",
+        ] {
+            assert!(!valid_result_name(bad), "{bad}");
+        }
     }
 
     #[test]
