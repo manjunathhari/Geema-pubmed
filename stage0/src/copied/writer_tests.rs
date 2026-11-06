@@ -606,3 +606,15 @@ fn a_sign_difference_traces_only_without_a_sign_of_its_own() {
     let (spans, _) = trace_numbers(&a, &allowed, known, true);
     assert_eq!(traced_marks(&a, &spans, "bottom_line.text"), ["13.5"]);
 }
+
+/// Stage 0: the Quick carve-out allows the abstract, title, year and PMID.
+#[test]
+fn quick_allowed_numbers_come_from_the_record_and_abstract() {
+    let mut s = input("11111111", "Pain 4.5 vs 5.5.");
+    s.title = "A trial of 60 patients".into();
+    let a = allowed_numbers_quick(&[s]);
+    for v in [4.5, 5.5, 60.0, 2025.0, 11111111.0] {
+        assert!(a.contains(&v), "{v} in {a:?}");
+    }
+    assert!(!a.contains(&7.0));
+}

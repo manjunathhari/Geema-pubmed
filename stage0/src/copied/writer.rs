@@ -8,7 +8,7 @@ use super::answer::{
     IntegrityV3, KeyNumber, NotableFinding, Number, Outcome, SearchEntry, Segment, Span, Study,
     WrittenAnswer, citation_ranges, clean_citations, split_citations, text_fields,
 };
-use super::numbers::{all_allowed, has_own_sign, written_numbers, written_traced};
+use super::numbers::{all_allowed, has_own_sign, quote_values, written_numbers, written_traced};
 use super::wrap::{neutralise_close_tag, neutralise_source_tags, wrap_source};
 
 /// A contradiction note on a study that was seen.
@@ -48,7 +48,10 @@ pub const STUDY_CAPS: StudyCaps = StudyCaps {
 };
 
 /// Bytes of the researcher's design label shown.
-const DESIGN_BYTES: usize = 10;
+// Stage 0 difference: 13, not 10, so "not available" is shown whole.
+const DESIGN_BYTES: usize = 13;
+/// Stage 0 difference: what the prompt says for inputs no stored run holds.
+pub const NOT_AVAILABLE: &str = "not available";
 
 /// Searches shown to the writer, at most.
 pub const WRITER_SEARCHES: usize = 20;
@@ -709,7 +712,8 @@ fn notes_tail(
         .collect();
     u.push_str("POSSIBLE CONTRADICTIONS NOTED BY THE RESEARCHER:\n");
     if notes.is_empty() {
-        u.push_str("(none)\n");
+        u.push_str(NOT_AVAILABLE);
+        u.push('\n');
     } else {
         u.push_str(&researcher_block("researcher-contradictions", &notes));
         u.push('\n');
@@ -728,13 +732,36 @@ fn notes_tail(
         .collect();
     u.push_str("\nRESEARCHER'S SEARCH LOG (as the databases returned it):\n");
     if log.is_empty() {
-        u.push_str("(none)\n");
+        u.push_str(NOT_AVAILABLE);
+        u.push('\n');
     } else {
         u.push_str(&researcher_block("researcher-searches", &log));
         u.push('\n');
     }
     u.push_str(&format!("\n{SUBMIT}"));
     u
+}
+
+/// Stage 0 carve-out of `allowed_numbers`, its Quick path (`full` is `None`):
+/// each study's title, year and abstract, and the PMIDs of the given studies.
+pub fn allowed_numbers_quick(studies: &[StudyInput]) -> Vec<f64> {
+    let mut out: Vec<f64> = Vec::new();
+    for s in studies {
+        out.extend(quote_values(&s.title));
+        out.extend(s.year.map(f64::from));
+        out.extend(
+            s.abstract_text
+                .as_deref()
+                .map(quote_values)
+                .unwrap_or_default(),
+        );
+    }
+    out.extend(
+        studies
+            .iter()
+            .filter_map(|s| s.pmid.trim().parse::<f64>().ok()),
+    );
+    out
 }
 
 /// The writer's numbers not traced to `allowed` (Stage 4 item 5): every

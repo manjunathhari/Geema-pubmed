@@ -34,6 +34,8 @@ fn fold(c: char, prev: Option<char>, next: Option<char>) -> Fold {
 
 /// A normalised text with the source byte span of every output byte and the
 /// output positions of spaces that stand for a paragraph break.
+// Stage 0: Incisive reads `map` and `paragraphs` elsewhere; only `text` is used here.
+#[allow(dead_code)]
 struct Mapped {
     text: String,
     map: Vec<(usize, usize)>,
