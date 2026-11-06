@@ -1,8 +1,8 @@
 //! After each run: labels the failure types and runs Incisive's Quick checks.
-//! Everything returned here is counts and codes, never text.
+//! Logs get only the codes and counts. The cleaned answer goes to the result file.
 
 use crate::codes::Code;
-use crate::copied::answer::IntegrityV3;
+use crate::copied::answer::{IntegrityV3, Span, WrittenAnswer};
 use crate::copied::writer::{
     StudyInput, WireAnswer, allowed_numbers_quick, check_citations, trace_numbers,
 };
@@ -22,6 +22,16 @@ pub struct CheckCounts {
     pub dropped_studies: u32,
     pub numbers_checked: u32,
     pub numbers_untraced: u32,
+}
+
+/// A valid answer after the Quick checks, as Incisive stores it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Checked {
+    pub counts: CheckCounts,
+    /// The answer with outside citations and rows removed.
+    pub answer: WrittenAnswer,
+    /// Numbers no source holds, as places in `answer`.
+    pub untraced: Vec<Span>,
 }
 
 /// Bytes a token, measured on real abstracts (model-prompt report section 2).
@@ -64,7 +74,7 @@ fn looks_like_a_loop(reply: &str) -> bool {
 
 /// Incisive's Quick checks, in the order `team.rs` runs them. The empty-list
 /// flags read the answer as written, before the citation check drops rows.
-fn quick_checks(a: WireAnswer, studies: &[StudyInput]) -> (Vec<Code>, CheckCounts) {
+fn quick_checks(a: WireAnswer, studies: &[StudyInput]) -> (Vec<Code>, Checked) {
     let selected: Vec<String> = studies.iter().map(|s| s.pmid.clone()).collect();
     let (mut written, labels_defaulted) = a.into_answer();
     let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
@@ -106,15 +116,20 @@ fn quick_checks(a: WireAnswer, studies: &[StudyInput]) -> (Vec<Code>, CheckCount
     );
     c.numbers_checked = checked;
     c.numbers_untraced = count(untraced.len());
-    (codes, c)
+    let checked = Checked {
+        counts: c,
+        answer: written,
+        untraced,
+    };
+    (codes, checked)
 }
 
-/// The codes for one finished call, and the check counts if the answer is valid.
+/// The codes for one finished call, and the checked answer if it is valid.
 pub fn evaluate(
     o: &ChatOutcome,
     prompt_bytes: usize,
     studies: &[StudyInput],
-) -> (Vec<Code>, Option<CheckCounts>) {
+) -> (Vec<Code>, Option<Checked>) {
     if let Some(f) = o.failure {
         return (vec![f], None);
     }
@@ -151,9 +166,9 @@ pub fn evaluate(
     }
     match serde_json::from_str::<WireAnswer>(&o.reply) {
         Ok(a) => {
-            let (empty, counts) = quick_checks(a, studies);
+            let (empty, checked) = quick_checks(a, studies);
             codes.extend(empty);
-            (codes, Some(counts))
+            (codes, Some(checked))
         }
         Err(_) => {
             if reason == Some("stop") {
@@ -237,7 +252,14 @@ mod tests {
         let o = outcome(&answer().to_string(), 10_000, 500, "stop");
         let (codes, c) = evaluate(&o, bytes_for(10_000), &studies());
         assert_eq!(codes, []);
-        let c = c.unwrap();
+        let checked = c.unwrap();
+        assert!(
+            !checked.answer.bottom_line.text.contains("99999999"),
+            "the outside citation is removed"
+        );
+        assert_eq!(checked.answer.outcomes[0].numbers.len(), 2);
+        assert_eq!(checked.untraced.len(), 2);
+        let c = checked.counts;
         assert_eq!((c.outcomes, c.studies, c.numbers), (1, 1, 3));
         assert_eq!(c.outcomes_without_numbers, 0);
         assert_eq!(c.labels_defaulted, 1, "the unknown certainty word");
@@ -454,7 +476,7 @@ mod tests {
             codes,
             [Code::EmptyOutcomes, Code::EmptyStudies, Code::EmptyNumbers]
         );
-        assert_eq!(c.unwrap().outcomes, 0);
+        assert_eq!(c.unwrap().counts.outcomes, 0);
 
         let mut a = answer();
         a["outcomes"][0]["numbers"] = json!([]);
@@ -464,7 +486,7 @@ mod tests {
             &studies(),
         );
         assert_eq!(codes, [Code::EmptyNumbers]);
-        assert_eq!(c.unwrap().outcomes_without_numbers, 1);
+        assert_eq!(c.unwrap().counts.outcomes_without_numbers, 1);
     }
 
     #[test]

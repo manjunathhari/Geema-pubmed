@@ -93,7 +93,11 @@ fn ollama() -> Mock {
         }
         let prompt = b["messages"][0]["content"].as_str().unwrap();
         let tokens = (prompt.len() as f64 / 3.85) as u64;
-        if prompt.contains("ASKBADJSON") {
+        if prompt.contains("ASKCITES") {
+            let mut a: Value = serde_json::from_str(&answer()).unwrap();
+            a["bottom_line"]["text"] = json!("Pain 4.5 vs 5.5 [11111111]. Also 9.9 [99999999].");
+            stream_reply(s, &a.to_string(), tokens, 500, "stop");
+        } else if prompt.contains("ASKBADJSON") {
             stream_reply(s, &format!("{{ {REPLY_WORD} not json"), tokens, 10, "stop");
         } else if prompt.contains("ASKCONTEXT") {
             respond(
@@ -332,6 +336,48 @@ fn each_job_sends_and_records_its_own_seed() {
     assert_eq!((seed(0), seed(1)), (json!(11), json!(22)));
     assert_eq!(result(&out, "plain")["settings"]["seed"], 11);
     assert_eq!(result(&out, "other")["settings"]["seed"], 22);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn the_cleaned_answer_and_untraced_spans_are_saved_beside_the_raw_reply() {
+    let (nc, ol, dir) = (ncbi(), ollama(), temp("cleaned"));
+    let out = dir.join("out");
+    let job = write_job(
+        &dir,
+        json!([
+            {"label": "cites", "question": format!("{QUESTION} ASKCITES"), "pmids": ["11111111"]},
+            {"label": "bad", "question": format!("{QUESTION} ASKBADJSON"), "pmids": ["11111111"]}
+        ]),
+    );
+    let o = run(&job, &out, &nc, &ol, &[]);
+    assert!(o.status.success(), "{}", all_output(&o));
+    assert_no_input_text(&all_output(&o));
+
+    let r = result(&out, "cites");
+    let text = r["cleaned_answer"]["bottom_line"]["text"].as_str().unwrap();
+    assert!(
+        !text.contains("99999999"),
+        "the invented citation is gone: {text}"
+    );
+    assert!(
+        r["raw_reply"].as_str().unwrap().contains("99999999"),
+        "raw stays raw"
+    );
+    assert_eq!(r["checks"]["removed_citations"], 1);
+    assert_eq!(r["checks"]["numbers_untraced"], 1);
+    // The span points at 9.9 in the cleaned text.
+    let spans = r["untraced"].as_array().unwrap();
+    assert_eq!(spans.len(), 1);
+    assert_eq!(spans[0]["field"], "bottom_line.text");
+    let start = spans[0]["start"].as_u64().unwrap() as usize;
+    let len = spans[0]["len"].as_u64().unwrap() as usize;
+    assert_eq!(&text[start..start + len], "9.9");
+
+    // With no valid answer there is nothing cleaned, and that's plain to see.
+    let r = result(&out, "bad");
+    assert_eq!(r["cleaned_answer"], Value::Null);
+    assert_eq!(r["untraced"], json!([]));
     std::fs::remove_dir_all(dir).unwrap();
 }
 

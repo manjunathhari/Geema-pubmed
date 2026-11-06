@@ -3,6 +3,7 @@
 
 use crate::checks::{CheckCounts, estimate_tokens, evaluate};
 use crate::codes::Code;
+use crate::copied::answer::{Span, WrittenAnswer};
 use crate::copied::writer::{STUDY_CAPS, StudyInput};
 use crate::job::{ConfigError, Job, parse_jobs, prepare_out_dir};
 use crate::ollama::{
@@ -87,7 +88,7 @@ pub struct InputInfo {
     pub searches_given: usize,
 }
 
-/// What is saved for one run. It holds no question and no abstract.
+/// What is saved for one run. It holds no question, abstract or search terms.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunResult {
     pub label: String,
@@ -101,6 +102,10 @@ pub struct RunResult {
     pub counters: Counters,
     pub codes: Vec<Code>,
     pub checks: Option<CheckCounts>,
+    /// The answer after the Quick checks, as Incisive stores it. `None`: not valid.
+    pub cleaned_answer: Option<WrittenAnswer>,
+    /// Numbers no source holds, as places in `cleaned_answer`.
+    pub untraced: Vec<Span>,
     pub raw_reply: String,
 }
 
@@ -199,6 +204,8 @@ fn run_one(
         // No stored run holds the researcher's reasons or notes.
         codes: vec![Code::ThinInput],
         checks: None,
+        cleaned_answer: None,
+        untraced: Vec::new(),
         raw_reply: String::new(),
     };
     say(
@@ -238,9 +245,13 @@ fn run_one(
         ),
     );
     let o: ChatOutcome = chat(&cfg.ollama, &chat_request(&prompt, job.seed), limits);
-    let (codes, checks) = evaluate(&o, prompt.len(), &fetched.studies);
+    let (codes, checked) = evaluate(&o, prompt.len(), &fetched.studies);
     result.codes.extend(codes);
-    result.checks = checks;
+    if let Some(c) = checked {
+        result.checks = Some(c.counts);
+        result.cleaned_answer = Some(c.answer);
+        result.untraced = c.untraced;
+    }
     result.wall_ms = o.wall_ms;
     result.first_token_ms = o.first_token_ms;
     result.http_status = o.http_status;
