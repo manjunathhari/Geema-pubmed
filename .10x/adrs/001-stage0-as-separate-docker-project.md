@@ -1,6 +1,6 @@
 # ADR-001: Run Stage 0 as a separate Docker project
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-11-06
 **Feature:** stage0-writer-test
 **Author:** 10x-Team (Architect + Staff Engineer)

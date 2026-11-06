@@ -1,6 +1,6 @@
 # Stage 0 writer test: design for approval
 
-Status: awaiting the owner's approval. Throwaway test, not the app.
+Status: approved by the owner on 2026-11-06. Throwaway test, not the app.
 
 ## Question
 Can Gemma 3 4B, given the studies Opus used, write an answer as refined as Incisive Quick?
