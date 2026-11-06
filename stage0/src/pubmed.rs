@@ -2,6 +2,7 @@
 
 use crate::copied::writer::{NOT_AVAILABLE, StudyInput};
 use crate::xml::{Child, Node, XmlError};
+use std::time::{Duration, Instant};
 
 /// One record as efetch gives it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -170,6 +171,84 @@ pub fn studies_from(pmids: &[String], records: Vec<Record>) -> Fetched {
         });
     }
     f
+}
+
+/// NCBI's address.
+pub const EUTILS: &str = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/";
+/// Sent as NCBI asks, so it can tell callers apart.
+const TOOL: &str = "stage0-runner";
+/// ids per efetch request, as Incisive.
+const FETCH_BATCH: usize = 50;
+const ATTEMPTS: usize = 3;
+
+/// efetch failed, after retries. Carries no text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NcbiFailure;
+
+/// An efetch client that holds to under 3 requests a second.
+pub struct NcbiClient {
+    base: String,
+    agent: ureq::Agent,
+    last: Option<Instant>,
+    /// Least time between requests: 2.5 a second.
+    pub gap: Duration,
+    /// Wait before a retry.
+    pub retry_wait: Duration,
+}
+
+impl NcbiClient {
+    pub fn new(base: &str) -> NcbiClient {
+        NcbiClient {
+            base: base.to_string(),
+            agent: ureq::AgentBuilder::new()
+                .timeout_connect(Duration::from_secs(30))
+                .timeout(Duration::from_secs(120))
+                .build(),
+            last: None,
+            gap: Duration::from_millis(400),
+            retry_wait: Duration::from_secs(2),
+        }
+    }
+
+    fn pace(&mut self) {
+        if let Some(t) = self.last {
+            let since = t.elapsed();
+            if since < self.gap {
+                std::thread::sleep(self.gap - since);
+            }
+        }
+        self.last = Some(Instant::now());
+    }
+
+    fn get(&mut self, url: &str) -> Option<Vec<Record>> {
+        self.pace();
+        let body = self.agent.get(url).call().ok()?.into_string().ok()?;
+        parse_efetch(&body).ok()
+    }
+
+    /// The studies for `pmids`. Only PMIDs leave this program.
+    pub fn fetch(&mut self, pmids: &[String]) -> Result<Fetched, NcbiFailure> {
+        let mut records = Vec::new();
+        for ids in pmids.chunks(FETCH_BATCH) {
+            let url = format!(
+                "{}efetch.fcgi?db=pubmed&id={}&rettype=abstract&retmode=xml&tool={TOOL}",
+                self.base,
+                ids.join(",")
+            );
+            let mut got = None;
+            for attempt in 0..ATTEMPTS {
+                if attempt > 0 {
+                    std::thread::sleep(self.retry_wait);
+                }
+                got = self.get(&url);
+                if got.is_some() {
+                    break;
+                }
+            }
+            records.extend(got.ok_or(NcbiFailure)?);
+        }
+        Ok(studies_from(pmids, records))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
